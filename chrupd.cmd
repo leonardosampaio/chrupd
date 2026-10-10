@@ -1,5 +1,5 @@
 <# :
-@echo off & SETLOCAL & SET "_PS=powershell.exe -NoLogo -NoProfile" & SET "_ARGS=\"%~dp0" %*"
+@echo off & SETLOCAL & SET "PSModulePath=" & SET "_PS=powershell.exe -NoLogo -NoProfile" & SET "_ARGS=\"%~dp0" %*"
 %_PS% "&(Invoke-Command {[ScriptBlock]::Create('$Args=@(&{$Args} %_ARGS%);'+((Get-Content \"%~f0\") -Join [char]10))})"
 ENDLOCAL & dir "%~f0.tmp" >nul 2>&1 && move /Y "%~f0" "%~f0.bak" >nul 2>&1 && move /Y "%~f0.tmp" "%~f0" >nul 2>&1 & GOTO :EOF
 #>
@@ -79,10 +79,11 @@ $cfg = @{
 	"Hibbiki" =	@{
 		enabled  = $true;
 		author   = "Hibbiki";
-		fmt      = "XML";
-		url      = "https://chromium.woolyss.com";
-		repo     = "https://github.com/Hibbiki/chromium-win64/releases/download/";
+		fmt      = "JSON";
+		url      = "https://github.com/Hibbiki/chromium-win64";
+		repo     = "https://api.github.com/repos/Hibbiki/chromium-win64/releases";
 		filemask = "mini_installer.";
+		channel  = "stable";
 	};
 	"Marmaduke" = @{
 		author   = "Marmaduke";
@@ -1757,7 +1758,7 @@ function Read-GhJson ([string]$jsonUrl) {
 			<# DISABLED: archMatch, urlMatch and revision #>
 			$jdataObj.editorMatch	= ($_.author.login -eq $items[$name].author) -or ($_.author.login -eq "github-actions[bot]")
 			<# $jdataObj.archMatch		= (($_.name -match $archRe[$arch]) -or ($_.body -match $archRe[$arch])) #>
-			$jdataObj.channelMatch	= ($channel -eq "dev")
+			$jdataObj.channelMatch	= ($channel -eq "dev") -or ($items[$name].channel -eq $channel)
 			<# $jdataObj.urlMatch		= ($_.url -match $items[$name].repo) #>
 			$jdataObj.version		= $_.tag_name
 			$jdataObj.tagMatch		= if ($tag) { $_.tag_name -match $tag } else { $true }
@@ -1781,6 +1782,11 @@ function Read-GhJson ([string]$jsonUrl) {
 							$jdataObj.url = $asset.browser_download_url
 							$jdataObj.urlMatch = $true
 							$jdataObj.archMatch = $true
+							<# use asset digest from github api as hash, e.g. "sha256:0123abcd..." #>
+							if ($asset.digest -match '^(sha256|sha512):([0-9a-f]+)$') {
+								$jdataObj.hashAlgo = $matches[1].ToUpper()
+								$jdataObj.hash = $matches[2]
+							}
 							break
 						} elseif ($noArchMatch) {
 							$urlsNoArchMatch += $asset.browser_download_url
@@ -1798,7 +1804,7 @@ function Read-GhJson ([string]$jsonUrl) {
 			}
 			Write-Msg -o dbg, 1 "JSON compare urls `$jdataObj.url      = $($jdataObj.url) "
 			Write-Msg -o dbg, 1 "                  `$items.[`$name].url = $($items[$name].url)/releases/download/$($jdataObj.version)/$($items[$name].filemask)"
-			if ($_.body -match "(md5|sha1|sha-1|sha256|sha512)") {
+			if ((-not $jdataObj.hash) -and ($_.body -match "(md5|sha1|sha-1|sha256|sha512)")) {
 				$jdataObj.hashAlgo = $_.body -replace [Environment]::NewLine, '' -replace ".*(md5|sha1|sha-1|sha256|sha512)[ :-].*", '$1' -replace "sha-1", "SHA1"
 			}
 			if ($_.body) {
